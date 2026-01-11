@@ -75,6 +75,7 @@ export const getTransfer = async (code) => {
 };
 
 // Lua 脚本：原子性检查、消耗并返回完整数据
+// 注意：使用 table.unpack 兼容 Redis 5+/7+
 const CONSUME_LUA = `
 local key = KEYS[1]
 if redis.call('EXISTS', key) == 0 then return nil end
@@ -87,7 +88,11 @@ local newCount = redis.call('HINCRBY', key, 'currentDownloads', 1)
 local burned = 0
 if max > 0 and newCount >= max then burned = 1 end
 local data = redis.call('HGETALL', key)
-return {1, newCount, max, burned, unpack(data)}
+local result = {1, newCount, max, burned}
+for i, v in ipairs(data) do
+  result[#result + 1] = v
+end
+return result
 `;
 
 export const consumeTransfer = async (code) => {

@@ -65,16 +65,23 @@ export const savePackage = async (
       throw new Error('Missing upload URL');
     }
 
-    const uploadResponse = await fetch(uploadUrl, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': content.type || 'application/octet-stream'
-      },
-      body: content
-    });
+    try {
+      const uploadResponse = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': content.type || 'application/octet-stream'
+        },
+        body: content
+      });
 
-    if (!uploadResponse.ok) {
-      throw new Error('File upload failed');
+      if (!uploadResponse.ok) {
+        const errorText = await uploadResponse.text().catch(() => '');
+        console.error('R2 upload failed:', uploadResponse.status, errorText);
+        throw new Error(`File upload failed: ${uploadResponse.status}`);
+      }
+    } catch (uploadError) {
+      console.error('R2 upload error:', uploadError);
+      throw new Error('文件上传到存储失败，请检查网络或稍后重试');
     }
   }
 

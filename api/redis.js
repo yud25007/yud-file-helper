@@ -74,19 +74,42 @@ export const getTransfer = async (code) => {
   return deserialize(data);
 };
 
-export const incrementDownloads = async (code) => {
+// Lua 脚本：原子性检查并消耗下载次数
+const CONSUME_LUA = `
+local key = KEYS[1]
+if redis.call('EXISTS', key) == 0 then return nil end
+local max = tonumber(redis.call('HGET', key, 'maxDownloads') or '0')
+local current = tonumber(redis.call('HGET', key, 'currentDownloads') or '0')
+if max > 0 and current >= max then
+  return {0, current, max}
+end
+local newCount = redis.call('HINCRBY', key, 'currentDownloads', 1)
+local burned = 0
+if max > 0 and newCount >= max then burned = 1 end
+return {1, newCount, max, burned}
+`;
+
+export const consumeTransfer = async (code) => {
   const key = keyFor(code);
-  const exists = await redis.exists(key);
-  if (!exists) return null;
-  const result = await redis.multi().hincrby(key, 'currentDownloads', 1).hgetall(key).exec();
+  const result = await redis.eval(CONSUME_LUA, 1, key);
   if (!result) return null;
-  const data = result[1]?.[1];
-  if (!data || Object.keys(data).length === 0) return null;
-  const count = result[0]?.[1];
-  if (count != null) {
-    data.currentDownloads = String(count);
+
+  const [consumed, currentDownloads, maxDownloads, burned] = result;
+  if (!consumed) {
+    return { consumed: false, currentDownloads, maxDownloads, burned: true, transfer: null };
   }
-  return deserialize(data);
+
+  const data = await redis.hgetall(key);
+  if (!data || Object.keys(data).length === 0) return null;
+  data.currentDownloads = String(currentDownloads);
+
+  return {
+    consumed: true,
+    currentDownloads,
+    maxDownloads,
+    burned: Boolean(burned),
+    transfer: deserialize(data),
+  };
 };
 
 export const deleteTransfer = async (code) => {

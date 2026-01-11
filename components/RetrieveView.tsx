@@ -12,7 +12,7 @@ export const RetrieveView: React.FC = () => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isRevealed, setIsRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [downloadUrl, setDownloadUrl] = useState('');
+  const [revealedMessage, setRevealedMessage] = useState('');
   const [fileMeta, setFileMeta] = useState<{ filename?: string; size?: number } | null>(null);
 
   const handleSearch = async () => {
@@ -20,14 +20,13 @@ export const RetrieveView: React.FC = () => {
     setIsSearching(true);
     setError('');
     setIsRevealed(false);
-    setDownloadUrl('');
+    setRevealedMessage('');
     setFileMeta(null);
 
     try {
       const result = await getFile(code);
       if (result) {
         setFoundFile(result.transfer);
-        setDownloadUrl(result.downloadUrl || '');
         setFileMeta({
           filename: result.filename,
           size: result.size
@@ -46,12 +45,25 @@ export const RetrieveView: React.FC = () => {
   };
 
   const handleDownloadFile = async () => {
-    if (!foundFile || !downloadUrl) return;
+    if (!foundFile) return;
     setIsDownloading(true);
+    setError('');
 
     try {
+      const result = await incrementDownload(code);
+      if (!result || !result.downloadUrl) {
+        setError('提取失败，文件已销毁或链接已过期。');
+        return;
+      }
+
+      setFoundFile(prev => prev ? {
+        ...prev,
+        currentDownloads: result.currentDownloads,
+        maxDownloads: result.maxDownloads
+      } : null);
+
       const link = document.createElement('a');
-      link.href = downloadUrl;
+      link.href = result.downloadUrl;
       if (fileMeta?.filename) {
         link.download = fileMeta.filename;
       }
@@ -60,39 +72,43 @@ export const RetrieveView: React.FC = () => {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-
-      await consumeDownload();
+    } catch (err) {
+      console.error('Download failed:', err);
+      setError('提取失败，请稍后再试。');
     } finally {
       setIsDownloading(false);
     }
   };
 
   const handleRevealText = async () => {
-    if (!foundFile || !foundFile.message) return;
-    setIsRevealed(true);
-    await consumeDownload();
-  };
+    if (!foundFile) return;
+    setError('');
 
-  const handleCopyText = () => {
-    if (foundFile?.message) {
-      navigator.clipboard.writeText(foundFile.message);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+    try {
+      const result = await incrementDownload(code);
+      if (!result || !result.message) {
+        setError('内容已销毁或无法解密。');
+        return;
+      }
+
+      setFoundFile(prev => prev ? {
+        ...prev,
+        currentDownloads: result.currentDownloads,
+        maxDownloads: result.maxDownloads
+      } : null);
+      setRevealedMessage(result.message);
+      setIsRevealed(true);
+    } catch (err) {
+      console.error('Reveal failed:', err);
+      setError('解密失败，请稍后再试。');
     }
   };
 
-  const consumeDownload = async () => {
-    try {
-      const result = await incrementDownload(code);
-      if (result) {
-        setFoundFile(prev => prev ? {
-          ...prev,
-          currentDownloads: result.currentDownloads,
-          maxDownloads: result.maxDownloads
-        } : null);
-      }
-    } catch (consumeError) {
-      console.error('Consume failed:', consumeError);
+  const handleCopyText = () => {
+    if (revealedMessage) {
+      navigator.clipboard.writeText(revealedMessage);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -114,6 +130,13 @@ export const RetrieveView: React.FC = () => {
             {foundFile.aiDescription || "准备进行安全提取。"}
           </p>
         </div>
+
+        {error && (
+          <div className="flex items-center gap-2 text-red-500 text-sm bg-red-50 p-3 rounded-xl animate-in slide-in-from-top-2">
+            <AlertCircle className="w-4 h-4" />
+            {error}
+          </div>
+        )}
 
         {!isText ? (
           /* FILE CARD */
@@ -138,7 +161,7 @@ export const RetrieveView: React.FC = () => {
               <div className="animate-in fade-in duration-500">
                 <div className="text-sm text-gray-400 font-medium mb-2 uppercase tracking-wider">留言内容</div>
                 <div className="text-gray-900 font-medium leading-relaxed break-words max-h-40 overflow-y-auto pr-2">
-                   "{foundFile.message}"
+                   "{revealedMessage}"
                 </div>
               </div>
             ) : (
@@ -176,7 +199,7 @@ export const RetrieveView: React.FC = () => {
                 </Button>
               )
             ) : (
-              <Button onClick={handleDownloadFile} className="w-full" disabled={isDownloading || !downloadUrl}>
+              <Button onClick={handleDownloadFile} className="w-full" disabled={isDownloading || isBurned}>
                 {isDownloading ? <Loader2 className="w-5 h-5 animate-spin"/> : <Download className="w-5 h-5" />}
                 提取文件
               </Button>

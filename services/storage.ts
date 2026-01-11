@@ -97,7 +97,6 @@ export const savePackage = async (
 
 export interface FileResult {
   transfer: TransferFile;
-  downloadUrl?: string;
   filename?: string;
   size?: number;
 }
@@ -127,7 +126,6 @@ export const getFile = async (code: string): Promise<FileResult | null> => {
 
   return {
     transfer: transferFile,
-    downloadUrl: typeof data.downloadUrl === 'string' ? data.downloadUrl : undefined,
     filename: typeof data.filename === 'string' ? data.filename : undefined,
     size: parseOptionalNumber(data.size)
   };
@@ -137,6 +135,8 @@ export interface ConsumeResult {
   currentDownloads: number;
   maxDownloads: number;
   burned: boolean;
+  downloadUrl?: string;
+  message?: string;
 }
 
 export const incrementDownload = async (code: string): Promise<ConsumeResult | null> => {

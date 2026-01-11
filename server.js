@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { GoogleGenAI } from '@google/genai';
 import { getPresignedUploadUrl, getPresignedDownloadUrl, deleteObject } from './api/r2.js';
-import { saveTransfer, getTransfer, incrementDownloads, deleteTransfer } from './api/redis.js';
+import { saveTransfer, getTransfer, consumeTransfer, deleteTransfer } from './api/redis.js';
 
 dotenv.config();
 
@@ -159,7 +159,7 @@ app.post('/api/upload', upload.single('file'), async (req, res, next) => {
   }
 });
 
-// GET /api/file/:code - 获取文件信息
+// GET /api/file/:code - 获取文件信息（不含敏感内容）
 app.get('/api/file/:code', async (req, res, next) => {
   try {
     const code = normalizeCode(req.params.code);
@@ -184,18 +184,25 @@ app.get('/api/file/:code', async (req, res, next) => {
       return res.status(404).json({ error: 'Not found' });
     }
 
-    let downloadUrl;
-    if (transfer.type === 'FILE' && transfer.r2Key) {
-      downloadUrl = await getPresignedDownloadUrl(transfer.r2Key);
-    }
-
-    return res.json(buildResponse(transfer, downloadUrl ? { downloadUrl } : {}));
+    // 只返回元数据，不返回 downloadUrl 和 message
+    return res.json({
+      id: transfer.id,
+      code: transfer.code,
+      type: transfer.type,
+      maxDownloads: transfer.maxDownloads,
+      currentDownloads: transfer.currentDownloads,
+      expiresAt: transfer.expiresAt,
+      aiDescription: transfer.aiDescription,
+      filename: transfer.filename,
+      size: transfer.size,
+      contentType: transfer.contentType,
+    });
   } catch (error) {
     return next(error);
   }
 });
 
-// POST /api/consume/:code - 消耗下载次数
+// POST /api/consume/:code - 原子性消耗并返回内容
 app.post('/api/consume/:code', async (req, res, next) => {
   try {
     const code = normalizeCode(req.params.code);
@@ -203,21 +210,37 @@ app.post('/api/consume/:code', async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid code' });
     }
 
-    const transfer = await incrementDownloads(code);
-    if (!transfer) {
+    const result = await consumeTransfer(code);
+    if (!result) {
       return res.status(404).json({ error: 'Not found' });
     }
 
-    const burned = transfer.currentDownloads >= transfer.maxDownloads;
+    if (!result.consumed) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const { transfer, currentDownloads, maxDownloads, burned } = result;
+
+    let downloadUrl;
+    let message;
+
+    if (transfer.type === 'FILE' && transfer.r2Key) {
+      downloadUrl = await getPresignedDownloadUrl(transfer.r2Key);
+    } else if (transfer.type === 'TEXT' && transfer.message) {
+      message = transfer.message;
+    }
+
     if (burned) {
       await deleteTransfer(code);
       if (transfer.r2Key) await deleteObject(transfer.r2Key);
     }
 
     return res.json({
-      currentDownloads: transfer.currentDownloads,
-      maxDownloads: transfer.maxDownloads,
+      currentDownloads,
+      maxDownloads,
       burned,
+      downloadUrl,
+      message,
     });
   } catch (error) {
     return next(error);

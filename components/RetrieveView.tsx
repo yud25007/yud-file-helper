@@ -10,6 +10,7 @@ export const RetrieveView: React.FC = () => {
   const [error, setError] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isRevealing, setIsRevealing] = useState(false);
   const [isRevealed, setIsRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
   const [revealedMessage, setRevealedMessage] = useState('');
@@ -81,8 +82,9 @@ export const RetrieveView: React.FC = () => {
   };
 
   const handleRevealText = async () => {
-    if (!foundFile) return;
+    if (!foundFile || isRevealing) return;
     setError('');
+    setIsRevealing(true);
 
     try {
       const result = await incrementDownload(code);
@@ -101,14 +103,20 @@ export const RetrieveView: React.FC = () => {
     } catch (err) {
       console.error('Reveal failed:', err);
       setError('解密失败，请稍后再试。');
+    } finally {
+      setIsRevealing(false);
     }
   };
 
-  const handleCopyText = () => {
-    if (revealedMessage) {
-      navigator.clipboard.writeText(revealedMessage);
+  const handleCopyText = async () => {
+    if (!revealedMessage) return;
+    try {
+      await navigator.clipboard.writeText(revealedMessage);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    } catch (copyError) {
+      console.error('Copy failed:', copyError);
+      setError('复制失败，请检查浏览器权限。');
     }
   };
 
@@ -193,9 +201,9 @@ export const RetrieveView: React.FC = () => {
                    {copied ? '已复制' : '复制留言'}
                  </Button>
               ) : (
-                <Button onClick={handleRevealText} className="w-full">
-                  <Lock className="w-5 h-5" />
-                  解密并查看
+                <Button onClick={handleRevealText} className="w-full" disabled={isRevealing || isBurned}>
+                  {isRevealing ? <Loader2 className="w-5 h-5 animate-spin"/> : <Lock className="w-5 h-5" />}
+                  {isRevealing ? '解密中...' : '解密并查看'}
                 </Button>
               )
             ) : (

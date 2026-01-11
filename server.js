@@ -47,6 +47,8 @@ app.use(helmet({
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "blob:"],
       connectSrc: ["'self'", "https://*.r2.cloudflarestorage.com", "https://lottie.host"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
     },
   },
 }));
@@ -235,9 +237,15 @@ app.post('/api/consume/:code', async (req, res, next) => {
     let downloadUrl;
     let message;
 
-    if (transfer.type === 'FILE' && transfer.r2Key) {
+    if (transfer.type === 'FILE') {
+      if (!transfer.r2Key) {
+        return res.status(500).json({ error: 'Missing file payload' });
+      }
       downloadUrl = await getPresignedDownloadUrl(transfer.r2Key);
-    } else if (transfer.type === 'TEXT' && transfer.message) {
+    } else if (transfer.type === 'TEXT') {
+      if (!transfer.message) {
+        return res.status(500).json({ error: 'Missing message payload' });
+      }
       message = transfer.message;
     }
 

@@ -46,7 +46,7 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "blob:"],
-      connectSrc: ["'self'", "https://*.r2.cloudflarestorage.com"],
+      connectSrc: ["'self'", "https://*.r2.cloudflarestorage.com", "https://lottie.host"],
     },
   },
 }));

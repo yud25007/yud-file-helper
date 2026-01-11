@@ -1,9 +1,10 @@
 import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import multer from 'multer';
 import rateLimit from 'express-rate-limit';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
@@ -25,6 +26,7 @@ const parsePositiveInt = (value, fallback) => {
 
 const PORT = parsePositiveInt(process.env.PORT, 8080);
 const DEFAULT_TTL_SECONDS = parsePositiveInt(process.env.REDIS_TTL_SECONDS, 24 * 60 * 60);
+const MAX_TTL_SECONDS = 7 * 24 * 60 * 60; // 最大 7 天
 const MAX_DOWNLOADS = parsePositiveInt(process.env.MAX_DOWNLOADS, 10);
 const MAX_UPLOAD_BYTES = parsePositiveInt(process.env.MAX_UPLOAD_BYTES, 50 * 1024 * 1024);
 const RATE_LIMIT_WINDOW_MS = parsePositiveInt(process.env.RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000);
@@ -32,9 +34,11 @@ const RATE_LIMIT_MAX = parsePositiveInt(process.env.RATE_LIMIT_MAX, 100);
 
 const corsOrigin = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
-  : '*';
+  : [];
 
 app.set('trust proxy', 1);
+
+app.use(helmet());
 
 app.use(
   rateLimit({
@@ -45,26 +49,35 @@ app.use(
   })
 );
 
-app.use(cors({ origin: corsOrigin, methods: ['GET', 'POST', 'OPTIONS'] }));
-app.use(express.json());
+app.use(cors({
+  origin: (origin, callback) => {
+    if (corsOrigin.length === 0) return callback(null, true);
+    if (!origin) return callback(null, true);
+    return callback(null, corsOrigin.includes(origin));
+  },
+  methods: ['GET', 'POST', 'OPTIONS']
+}));
+app.use(express.json({ limit: '1mb' }));
 
 const upload = multer({
-  storage: multer.memoryStorage(),
   limits: { fileSize: MAX_UPLOAD_BYTES },
 });
 
 const CODE_CHARS = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+const CODE_LENGTH = 6;
+const CODE_REGEX = /^[2-9A-HJ-NP-Z]{6}$/;
 
 const generateCode = () => {
+  const bytes = randomBytes(CODE_LENGTH);
   let result = '';
-  for (let i = 0; i < 6; i += 1) {
-    result += CODE_CHARS.charAt(Math.floor(Math.random() * CODE_CHARS.length));
+  for (let i = 0; i < CODE_LENGTH; i += 1) {
+    result += CODE_CHARS.charAt(bytes[i] % CODE_CHARS.length);
   }
   return result;
 };
 
 const normalizeCode = (value) => String(value ?? '').trim().toUpperCase();
-const isCodeValid = (code) => code.length === 6;
+const isCodeValid = (code) => CODE_REGEX.test(code);
 
 const allocateCode = async () => {
   for (let i = 0; i < 6; i += 1) {
@@ -101,7 +114,7 @@ app.post('/api/upload', upload.single('file'), async (req, res, next) => {
     const maxDownloadsInput = parsePositiveInt(req.body.maxDownloads, 1);
     const maxDownloads = Math.min(maxDownloadsInput, MAX_DOWNLOADS);
     const aiDescription = typeof req.body.aiDescription === 'string' ? req.body.aiDescription : undefined;
-    const ttlSeconds = parsePositiveInt(req.body.ttlSeconds, DEFAULT_TTL_SECONDS);
+    const ttlSeconds = Math.min(parsePositiveInt(req.body.ttlSeconds, DEFAULT_TTL_SECONDS), MAX_TTL_SECONDS);
     const expiresAt = Date.now() + ttlSeconds * 1000;
     const id = randomUUID();
     const code = await allocateCode();

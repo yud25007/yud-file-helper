@@ -275,7 +275,11 @@ app.post('/api/briefing', async (req, res) => {
       return res.json({ briefing: "安全数据已加密并锁定。" });
     }
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const aiConfig = { apiKey: process.env.API_KEY };
+    if (process.env.GEMINI_BASE_URL) {
+      aiConfig.httpOptions = { baseUrl: process.env.GEMINI_BASE_URL };
+    }
+    const ai = new GoogleGenAI(aiConfig);
 
     let prompt = "";
     if (type === 'FILE') {
@@ -286,7 +290,7 @@ app.post('/api/briefing', async (req, res) => {
     }
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
       contents: prompt,
     });
 

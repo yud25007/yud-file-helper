@@ -38,7 +38,17 @@ const corsOrigin = process.env.CORS_ORIGIN
 
 app.set('trust proxy', 1);
 
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:"],
+      connectSrc: ["'self'", "https://*.r2.cloudflarestorage.com"],
+    },
+  },
+}));
 
 app.use(
   rateLimit({

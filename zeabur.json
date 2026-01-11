@@ -1,0 +1,9 @@
+{
+  "$schema": "https://zeabur.com/schema.json",
+  "build": {
+    "command": "npm install && npm run build"
+  },
+  "start": {
+    "command": "node server.js"
+  }
+}

@@ -1,5 +1,6 @@
 {
   "$schema": "https://zeabur.com/schema.json",
+  "runtime": "node",
   "build": {
     "command": "npm install && npm run build"
   },

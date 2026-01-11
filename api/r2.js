@@ -3,23 +3,29 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const { R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET } = process.env;
 
-if (!R2_ACCOUNT_ID || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_BUCKET) {
-  throw new Error('Missing R2 configuration');
+const R2_CONFIGURED = R2_ACCOUNT_ID && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_BUCKET;
+
+if (!R2_CONFIGURED) {
+  console.warn('Warning: R2 configuration incomplete. File uploads will fail.');
+  console.warn('Required: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET');
 }
 
-const R2_ENDPOINT = `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+const R2_ENDPOINT = R2_ACCOUNT_ID ? `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : '';
 const SIGNED_URL_TTL = Number.parseInt(process.env.R2_PRESIGN_EXPIRES_SECONDS ?? '300', 10);
 
-const client = new S3Client({
+const client = R2_CONFIGURED ? new S3Client({
   region: 'auto',
   endpoint: R2_ENDPOINT,
   credentials: {
     accessKeyId: R2_ACCESS_KEY_ID,
     secretAccessKey: R2_SECRET_ACCESS_KEY,
   },
-});
+}) : null;
 
 export const getPresignedUploadUrl = async (key, contentType) => {
+  if (!client) {
+    throw new Error('R2 storage not configured');
+  }
   const command = new PutObjectCommand({
     Bucket: R2_BUCKET,
     Key: key,
@@ -29,6 +35,9 @@ export const getPresignedUploadUrl = async (key, contentType) => {
 };
 
 export const getPresignedDownloadUrl = async (key) => {
+  if (!client) {
+    throw new Error('R2 storage not configured');
+  }
   const command = new GetObjectCommand({
     Bucket: R2_BUCKET,
     Key: key,
@@ -37,7 +46,7 @@ export const getPresignedDownloadUrl = async (key) => {
 };
 
 export const deleteObject = async (key) => {
-  if (!key) return;
+  if (!key || !client) return;
   const command = new DeleteObjectCommand({
     Bucket: R2_BUCKET,
     Key: key,

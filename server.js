@@ -260,7 +260,11 @@ app.post('/api/consume/:code', async (req, res, next) => {
       if (!transfer.r2Key) {
         return res.status(500).json({ error: 'Missing file payload' });
       }
-      downloadUrl = await getPresignedDownloadUrl(transfer.r2Key);
+      downloadUrl = await getPresignedDownloadUrl(
+        transfer.r2Key,
+        transfer.filename,
+        transfer.contentType
+      );
     } else if (transfer.type === 'TEXT') {
       if (!transfer.message) {
         return res.status(500).json({ error: 'Missing message payload' });

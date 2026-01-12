@@ -40,13 +40,17 @@ export const getPresignedUploadUrl = async (key, contentType) => {
   return getSignedUrl(client, command, { expiresIn: SIGNED_URL_TTL });
 };
 
-export const getPresignedDownloadUrl = async (key) => {
+export const getPresignedDownloadUrl = async (key, filename, contentType) => {
   if (!client) {
     throw new Error('R2 storage not configured');
   }
   const command = new GetObjectCommand({
     Bucket: R2_BUCKET,
     Key: key,
+    ResponseContentDisposition: filename
+      ? `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`
+      : 'attachment',
+    ResponseContentType: contentType || 'application/octet-stream',
   });
   return getSignedUrl(client, command, { expiresIn: SIGNED_URL_TTL });
 };

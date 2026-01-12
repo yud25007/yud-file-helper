@@ -77,10 +77,16 @@ export const savePackage = async (
       if (!uploadResponse.ok) {
         const errorText = await uploadResponse.text().catch(() => '');
         console.error('R2 upload failed:', uploadResponse.status, errorText);
-        throw new Error(`File upload failed: ${uploadResponse.status}`);
+        if (uploadResponse.status === 403) {
+          throw new Error('存储服务认证失败，请联系管理员检查R2配置');
+        }
+        throw new Error(`文件上传失败 (${uploadResponse.status})`);
       }
     } catch (uploadError) {
       console.error('R2 upload error:', uploadError);
+      if (uploadError instanceof Error && uploadError.message.includes('存储')) {
+        throw uploadError;
+      }
       throw new Error('文件上传到存储失败，请检查网络或稍后重试');
     }
   }

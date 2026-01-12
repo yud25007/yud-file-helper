@@ -8,6 +8,12 @@ const R2_CONFIGURED = R2_ACCOUNT_ID && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY 
 if (!R2_CONFIGURED) {
   console.warn('Warning: R2 configuration incomplete. File uploads will fail.');
   console.warn('Required: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET');
+} else {
+  // 检查环境变量是否包含无效字符
+  const invalidChars = /[<>]/;
+  if (invalidChars.test(R2_ACCOUNT_ID) || invalidChars.test(R2_ACCESS_KEY_ID) || invalidChars.test(R2_SECRET_ACCESS_KEY)) {
+    console.error('ERROR: R2 credentials contain invalid characters (<>). Please remove angle brackets from environment variables.');
+  }
 }
 
 const R2_ENDPOINT = R2_ACCOUNT_ID ? `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : '';

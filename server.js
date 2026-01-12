@@ -92,6 +92,23 @@ const generateCode = () => {
 const normalizeCode = (value) => String(value ?? '').trim().toUpperCase();
 const isCodeValid = (code) => CODE_REGEX.test(code);
 
+// 清理文件名：移除路径、控制字符
+const sanitizeFilename = (value) => {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  const baseName = trimmed.split(/[\\/]/).pop();
+  return baseName.replace(/[\u0000-\u001F\u007F]/g, '').trim();
+};
+
+// 规范化 Content-Type：防止响应头注入
+const normalizeContentType = (value) => {
+  if (typeof value !== 'string') return 'application/octet-stream';
+  const trimmed = value.trim();
+  if (!trimmed || /[\r\n]/.test(trimmed)) return 'application/octet-stream';
+  return trimmed;
+};
+
 const allocateCode = async () => {
   for (let i = 0; i < 6; i += 1) {
     const code = generateCode();
@@ -148,9 +165,12 @@ app.post('/api/upload', upload.single('file'), async (req, res, next) => {
     }
 
     const file = req.file;
-    const filename = file?.originalname || (typeof req.body.filename === 'string' ? req.body.filename : '');
+    const filenameInput = file?.originalname || (typeof req.body.filename === 'string' ? req.body.filename : '');
+    const filename = sanitizeFilename(filenameInput);
     const size = file?.size ?? parsePositiveInt(req.body.size, 0);
-    const contentType = file?.mimetype || (typeof req.body.contentType === 'string' ? req.body.contentType : 'application/octet-stream');
+    const contentType = normalizeContentType(
+      file?.mimetype || (typeof req.body.contentType === 'string' ? req.body.contentType : undefined)
+    );
 
     if (!filename || !size) {
       return res.status(400).json({ error: 'File metadata is required' });

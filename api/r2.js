@@ -44,13 +44,44 @@ export const getPresignedDownloadUrl = async (key, filename, contentType) => {
   if (!client) {
     throw new Error('R2 storage not configured');
   }
+
+  // 清理文件名：移除路径、控制字符
+  const sanitizeFilename = (value) => {
+    if (typeof value !== 'string') return '';
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    const baseName = trimmed.split(/[\\/]/).pop();
+    return baseName.replace(/[\u0000-\u001F\u007F]/g, '').trim();
+  };
+
+  // RFC 5987 编码
+  const encodeRFC5987 = (str) =>
+    encodeURIComponent(str).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+
+  // 构建 Content-Disposition
+  const buildContentDisposition = (fname) => {
+    const safeName = sanitizeFilename(fname);
+    if (!safeName) return 'attachment';
+    const asciiFallback = safeName
+      .replace(/[^\x20-\x7E]/g, '_')
+      .replace(/["\\]/g, '_')
+      .trim() || 'download';
+    return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeRFC5987(safeName)}`;
+  };
+
+  // 规范化 Content-Type
+  const normalizeContentType = (value) => {
+    if (typeof value !== 'string') return 'application/octet-stream';
+    const trimmed = value.trim();
+    if (!trimmed || /[\r\n]/.test(trimmed)) return 'application/octet-stream';
+    return trimmed;
+  };
+
   const command = new GetObjectCommand({
     Bucket: R2_BUCKET,
     Key: key,
-    ResponseContentDisposition: filename
-      ? `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`
-      : 'attachment',
-    ResponseContentType: contentType || 'application/octet-stream',
+    ResponseContentDisposition: buildContentDisposition(filename),
+    ResponseContentType: normalizeContentType(contentType),
   });
   return getSignedUrl(client, command, { expiresIn: SIGNED_URL_TTL });
 };

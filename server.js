@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { GoogleGenAI } from '@google/genai';
-import { getPresignedUploadUrl, getPresignedDownloadUrl, deleteObject } from './api/r2.js';
+import { getPresignedUploadUrl, getPresignedDownloadUrl, deleteObject, objectExists } from './api/r2.js';
 import { saveTransfer, getTransfer, consumeTransfer, deleteTransfer } from './api/redis.js';
 
 dotenv.config();
@@ -221,6 +221,25 @@ app.post('/api/consume/:code', async (req, res, next) => {
     const code = normalizeCode(req.params.code);
     if (!isCodeValid(code)) {
       return res.status(400).json({ error: 'Invalid code' });
+    }
+
+    // 先检查记录是否存在，如果是文件类型则验证对象存在性
+    const precheck = await getTransfer(code);
+    if (!precheck) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    if (precheck.type === 'FILE') {
+      if (!precheck.r2Key) {
+        return res.status(500).json({ error: 'Missing file payload' });
+      }
+      // 检查 R2 对象是否存在，避免消耗计数后才发现文件不存在
+      const exists = await objectExists(precheck.r2Key);
+      if (!exists) {
+        // 文件不存在，清理孤儿记录
+        await deleteTransfer(code);
+        return res.status(404).json({ error: 'File not found in storage' });
+      }
     }
 
     const result = await consumeTransfer(code);

@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const { R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET } = process.env;
@@ -58,4 +58,22 @@ export const deleteObject = async (key) => {
     Key: key,
   });
   await client.send(command);
+};
+
+export const objectExists = async (key) => {
+  if (!key || !client) return false;
+  const command = new HeadObjectCommand({
+    Bucket: R2_BUCKET,
+    Key: key,
+  });
+  try {
+    await client.send(command);
+    return true;
+  } catch (error) {
+    const status = error?.$metadata?.httpStatusCode;
+    if (status === 404 || error?.name === 'NotFound' || error?.Code === 'NoSuchKey') {
+      return false;
+    }
+    throw error;
+  }
 };

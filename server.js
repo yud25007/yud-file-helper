@@ -270,7 +270,17 @@ app.post('/api/consume/:code', async (req, res, next) => {
 
     if (burned) {
       await deleteTransfer(code);
-      if (transfer.r2Key) await deleteObject(transfer.r2Key);
+      // 延迟删除 R2 对象，等待用户完成下载
+      // presigned URL 有效期为 SIGNED_URL_TTL（默认 300 秒）
+      // 延迟删除时间设为 URL 有效期 + 60 秒缓冲
+      if (transfer.r2Key) {
+        const deleteDelayMs = (Number.parseInt(process.env.R2_PRESIGN_EXPIRES_SECONDS ?? '300', 10) + 60) * 1000;
+        setTimeout(() => {
+          deleteObject(transfer.r2Key).catch(err => {
+            console.error('Delayed R2 delete failed:', err);
+          });
+        }, deleteDelayMs);
+      }
     }
 
     return res.json({

@@ -53,16 +53,23 @@ export const UploadView: React.FC<UploadViewProps> = ({ onSuccess }) => {
     setUploadProgress(0);
 
     try {
-      let missionBriefing = "";
-      let content: File | string = "";
+      const content: File | string = activeTab === 'FILE' && file ? file : message;
+      const briefingInput = activeTab === 'FILE' && file ? file.name : message;
 
-      if (activeTab === 'FILE' && file) {
-        missionBriefing = await generateMissionBriefing(file.name, 'FILE');
-        content = file;
-      } else {
-        missionBriefing = await generateMissionBriefing(message, 'TEXT');
-        content = message;
-      }
+      // 并行执行：Gemini 生成简报（后台） + 文件上传（前台）
+      // briefing 失败不影响上传
+      const briefingPromise = generateMissionBriefing(briefingInput, activeTab)
+        .catch(err => {
+          console.warn('Briefing generation failed:', err);
+          return '安全数据已加密并锁定。';
+        });
+
+      // 先等待 briefing（在上传开始前获取），然后上传
+      // 但如果 briefing 太慢，可以使用超时
+      const missionBriefing = await Promise.race([
+        briefingPromise,
+        new Promise<string>(resolve => setTimeout(() => resolve('安全数据已加密并锁定。'), 5000))
+      ]);
 
       const storedFile = await savePackage(content, activeTab, limit, missionBriefing, (p) => {
         setUploadProgress(p);

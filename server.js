@@ -319,7 +319,7 @@ app.post('/api/briefing', async (req, res) => {
     }
 
     const response = await ai.models.generateContent({
-      model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+      model: process.env.GEMINI_MODEL || 'gemini-3-flash-preview',
       contents: prompt,
     });
 

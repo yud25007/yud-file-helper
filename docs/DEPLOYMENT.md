@@ -43,7 +43,7 @@ YUD 文件助手旨在提供一个临时、安全且有趣的分享渠道。其�
 ### 人工智能 (AI)
 | 服务 | 用途 |
 | --- | --- |
-| Google Gemini | 生成任务简报（默认 `gemini-2.0-flash`） |
+| Google Gemini | 生成任务简报（默认 `gemini-3-flash-preview`） |
 
 ---
 
@@ -86,7 +86,7 @@ YUD 文件助手旨在提供一个临时、安全且有趣的分享渠道。其�
 | --- | --- | --- |
 | `API_KEY` | 空 | Google Gemini API Key，未配置时显示默认文案 |
 | `GEMINI_BASE_URL` | 空 | Gemini API 自定义 Base URL（用于代理） |
-| `GEMINI_MODEL` | `gemini-2.0-flash` | 使用的模型名称 |
+| `GEMINI_MODEL` | `gemini-3-flash-preview` | 使用的模型名称 |
 
 ### 3.5 限制配置
 
@@ -254,6 +254,44 @@ docker run --rm -p 8080:8080 --env-file .env yud-file-helper
 2. `HINCRBY` 原子递增下载次数，避免并发双扣
 3. 达到上限时自动删除 Redis 记录及 R2 对象
 
+### 8.4 文件名与 Content-Type 安全加固
+
+为防止路径注入、控制字符注入和响应头注入攻击，系统在多个层面进行输入消毒：
+
+**文件名消毒 (`sanitizeFilename`)**:
+- 移除路径前缀（如 `C:\fakepath\`）
+- 过滤控制字符（`\u0000-\u001F`, `\u007F`）
+- 应用于上传时的文件名元数据
+
+**Content-Type 规范化 (`normalizeContentType`)**:
+- 过滤包含 `\r\n` 的恶意输入（防止 HTTP 响应头注入）
+- 空值或无效值回退为 `application/octet-stream`
+
+**下载文件名保护（RFC 5987 编码）**:
+- 使用双文件名方案：ASCII 回退名 + UTF-8 编码名
+- 格式：`attachment; filename="fallback.txt"; filename*=UTF-8''原始文件名.txt`
+- 确保国际字符（中文等）正确显示
+
+### 8.5 阅后即焚延迟删除
+
+当文件达到最大下载次数时（`burned=true`），系统采用延迟删除策略：
+
+1. 立即删除 Redis 记录（防止再次消费）
+2. 延迟删除 R2 对象：预签名 URL 有效期 + 60 秒缓冲
+3. 确保用户有足够时间完成下载
+
+默认延迟时间：`R2_PRESIGN_EXPIRES_SECONDS`（300秒）+ 60秒 = 6分钟
+
+### 8.6 下载前对象存在性检查
+
+在消费下载次数之前，系统会先验证 R2 对象是否存在：
+
+1. 调用 `HeadObjectCommand` 检查对象
+2. 若对象不存在，清理孤儿 Redis 记录
+3. 返回 404 错误，不消耗下载次数
+
+此机制防止因存储异常导致的无效消耗。
+
 ---
 
 ## 9. 常见问题排查
@@ -284,9 +322,21 @@ docker run --rm -p 8080:8080 --env-file .env yud-file-helper
 
 ### 9.5 AI 简报显示默认文案
 
-**原因**: `API_KEY` 未配置或 Gemini 接口调用失败
+**原因**: `API_KEY` 未配置或 Gemini 接口调用失败/超时
 
-**解决**: 检查 Gemini API Key 是否有效。此问题不影响核心文件分享功能
+**解决**: 检查 Gemini API Key 是否有效。前端设有 5 秒超时，若 Gemini 响应过慢会自动使用默认文案。此问题不影响核心文件分享功能
+
+### 9.6 下载的文件没有扩展名
+
+**原因**: 早期版本未设置 `Content-Disposition` 响应头
+
+**解决**: 已修复。现在下载时会通过 R2 预签名 URL 的 `ResponseContentDisposition` 参数传递原始文件名
+
+### 9.7 阅后即焚模式下文件无法下载
+
+**原因**: 早期版本在返回下载链接的同时立即删除了 R2 对象
+
+**解决**: 已修复。现在采用延迟删除策略，在预签名 URL 有效期后再删除对象
 
 ---
 
@@ -295,15 +345,34 @@ docker run --rm -p 8080:8080 --env-file .env yud-file-helper
 ```
 yud文件助手/
 ├── api/
-│   ├── r2.js          # Cloudflare R2 客户端
+│   ├── r2.js          # Cloudflare R2 客户端（含安全加固）
 │   └── redis.js       # Redis 客户端与 Lua 脚本
 ├── components/        # React 组件
+│   ├── UploadView.tsx # 上传界面（含进度条）
+│   └── ...
 ├── services/
-│   └── storage.ts     # 前端 API 调用
+│   ├── storage.ts     # 前端 API 调用（XMLHttpRequest）
+│   └── gemini.ts      # Gemini AI 服务
+├── docs/
+│   └── DEPLOYMENT.md  # 本文档
 ├── server.js          # Express 服务器
 ├── Dockerfile         # Docker 构建配置
 └── package.json
 ```
+
+---
+
+## 11. 更新日志
+
+### 2025-01 安全与体验优化
+
+- **安全加固**：添加文件名消毒和 Content-Type 规范化，防止路径注入和响应头注入
+- **RFC 5987 编码**：下载文件名支持中文等国际字符
+- **延迟删除**：阅后即焚模式下延迟删除 R2 对象，确保下载完成
+- **对象存在性检查**：消费前验证 R2 对象，防止无效消耗
+- **上传进度条**：使用 XMLHttpRequest 替代 fetch，支持实时进度显示
+- **简报超时**：Gemini API 调用设置 5 秒超时，避免阻塞上传流程
+- **模型升级**：默认 Gemini 模型更新为 `gemini-3-flash-preview`
 
 ---
 

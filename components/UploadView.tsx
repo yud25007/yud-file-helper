@@ -17,6 +17,7 @@ export const UploadView: React.FC<UploadViewProps> = ({ onSuccess }) => {
   const [limit, setLimit] = useState<number>(1);
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -49,6 +50,7 @@ export const UploadView: React.FC<UploadViewProps> = ({ onSuccess }) => {
 
     setIsProcessing(true);
     setError('');
+    setUploadProgress(0);
 
     try {
       let missionBriefing = "";
@@ -62,13 +64,16 @@ export const UploadView: React.FC<UploadViewProps> = ({ onSuccess }) => {
         content = message;
       }
 
-      const storedFile = await savePackage(content, activeTab, limit, missionBriefing);
+      const storedFile = await savePackage(content, activeTab, limit, missionBriefing, (p) => {
+        setUploadProgress(p);
+      });
       onSuccess(storedFile);
     } catch (uploadError) {
       console.error('Upload failed:', uploadError);
       setError(uploadError instanceof Error ? uploadError.message : '上传失败，请稍后重试。');
     } finally {
       setIsProcessing(false);
+      setUploadProgress(0);
     }
   };
 
@@ -193,6 +198,22 @@ export const UploadView: React.FC<UploadViewProps> = ({ onSuccess }) => {
           ))}
         </div>
       </div>
+
+      {/* Upload Progress */}
+      {isProcessing && activeTab === 'FILE' && uploadProgress > 0 && (
+        <div className="space-y-2">
+          <div className="flex justify-between text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">
+            <span>传输进度</span>
+            <span>{uploadProgress}%</span>
+          </div>
+          <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gray-900 transition-all duration-300 ease-out"
+              style={{ width: `${uploadProgress}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="h-px bg-gray-200/50 w-full" />
 

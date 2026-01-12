@@ -37,7 +37,8 @@ export const savePackage = async (
   content: File | string,
   type: TransferType,
   maxDownloads: number,
-  aiDescription: string
+  aiDescription: string,
+  onProgress?: (percent: number) => void
 ): Promise<TransferFile> => {
   const formData = new FormData();
   formData.append('type', type);
@@ -66,28 +67,46 @@ export const savePackage = async (
     }
 
     try {
-      const uploadResponse = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': content.type || 'application/octet-stream'
-        },
-        body: content
-      });
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', uploadUrl);
+        xhr.setRequestHeader('Content-Type', content.type || 'application/octet-stream');
 
-      if (!uploadResponse.ok) {
-        const errorText = await uploadResponse.text().catch(() => '');
-        console.error('R2 upload failed:', uploadResponse.status, errorText);
-        if (uploadResponse.status === 403) {
-          throw new Error('存储服务认证失败，请联系管理员检查R2配置');
+        if (onProgress) {
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+              onProgress(Math.round((e.loaded / e.total) * 100));
+            }
+          };
         }
-        throw new Error(`文件上传失败 (${uploadResponse.status})`);
-      }
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            console.error('R2 upload failed:', xhr.status, xhr.responseText);
+            if (xhr.status === 403) {
+              reject(new Error('存储服务认证失败，请检查 R2 CORS 配置'));
+            } else {
+              reject(new Error(`存储服务返回错误 (${xhr.status})`));
+            }
+          }
+        };
+
+        xhr.onerror = () => {
+          console.error('R2 upload network error');
+          reject(new Error('网络连接错误或被 CORS 策略阻止，请检查 R2 配置'));
+        };
+
+        xhr.ontimeout = () => {
+          reject(new Error('上传超时，请检查网络连接'));
+        };
+
+        xhr.send(content);
+      });
     } catch (uploadError) {
       console.error('R2 upload error:', uploadError);
-      if (uploadError instanceof Error && uploadError.message.includes('存储')) {
-        throw uploadError;
-      }
-      throw new Error('文件上传到存储失败，请检查网络或稍后重试');
+      throw uploadError;
     }
   }
 

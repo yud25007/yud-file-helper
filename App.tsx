@@ -99,6 +99,10 @@ const App: React.FC = () => {
               {mode === AppMode.UPLOAD ? (
                 <div className="flex flex-col h-full">
                   <UploadView onSuccess={setUploadedFile} />
+                   {/* 红色警告提示 */}
+    <p className="mt-2 text-xs text-red-500 text-center">
+      ⚠️ 只能上传不超过 1GB 的文件并提取
+    </p>
                   <div className="mt-8 text-center">
                     <button 
                       onClick={() => setMode(AppMode.RETRIEVE)}

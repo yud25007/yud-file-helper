@@ -30,7 +30,6 @@ COPY --from=builder /app/dist ./dist
 # Copy backend files
 COPY server.js ./
 COPY api ./api
-COPY utils ./utils
 
 # Expose port
 EXPOSE 8080

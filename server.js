@@ -9,9 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { GoogleGenAI } from '@google/genai';
-import { getPresignedUploadUrl, getPresignedDownloadUrl, deleteObject, objectExists, deleteObjectWithRetry } from './api/r2.js';
-import { saveTransfer, getTransfer, consumeTransfer, deleteTransfer, schedulePendingDelete, getPendingDeletes, removePendingDelete } from './api/redis.js';
-import { sanitizeFilename, normalizeContentType } from './utils/sanitize.js';
+import { getPresignedUploadUrl, getPresignedDownloadUrl, deleteObject, objectExists } from './api/r2.js';
+import { saveTransfer, getTransfer, consumeTransfer, deleteTransfer } from './api/redis.js';
 
 dotenv.config();
 
@@ -28,7 +27,6 @@ const parsePositiveInt = (value, fallback) => {
 const PORT = parsePositiveInt(process.env.PORT, 8080);
 const DEFAULT_TTL_SECONDS = parsePositiveInt(process.env.REDIS_TTL_SECONDS, 24 * 60 * 60);
 const MAX_TTL_SECONDS = 7 * 24 * 60 * 60; // 最大 7 天
-// MAX_DOWNLOADS 不再限制上限，用户可自定义任意正整数
 const MAX_UPLOAD_BYTES = parsePositiveInt(process.env.MAX_UPLOAD_BYTES, 50 * 1024 * 1024);
 const RATE_LIMIT_WINDOW_MS = parsePositiveInt(process.env.RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000);
 const RATE_LIMIT_MAX = parsePositiveInt(process.env.RATE_LIMIT_MAX, 100);
@@ -92,6 +90,23 @@ const generateCode = () => {
 
 const normalizeCode = (value) => String(value ?? '').trim().toUpperCase();
 const isCodeValid = (code) => CODE_REGEX.test(code);
+
+// 清理文件名：移除路径、控制字符
+const sanitizeFilename = (value) => {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  const baseName = trimmed.split(/[\\/]/).pop();
+  return baseName.replace(/[\u0000-\u001F\u007F]/g, '').trim();
+};
+
+// 规范化 Content-Type：防止响应头注入
+const normalizeContentType = (value) => {
+  if (typeof value !== 'string') return 'application/octet-stream';
+  const trimmed = value.trim();
+  if (!trimmed || /[\r\n]/.test(trimmed)) return 'application/octet-stream';
+  return trimmed;
+};
 
 const allocateCode = async () => {
   for (let i = 0; i < 6; i += 1) {
@@ -277,29 +292,15 @@ app.post('/api/consume/:code', async (req, res, next) => {
 
     if (burned) {
       await deleteTransfer(code);
+      // 延迟删除 R2 对象，等待用户完成下载
+      // presigned URL 有效期为 SIGNED_URL_TTL（默认 300 秒）
+      // 延迟删除时间设为 URL 有效期 + 60 秒缓冲
       if (transfer.r2Key) {
-        const presignSeconds = Number.parseInt(process.env.R2_PRESIGN_EXPIRES_SECONDS ?? '300', 10);
-        const deleteDelayMs = ((Number.isFinite(presignSeconds) && presignSeconds > 0 ? presignSeconds : 300) + 60) * 1000;
-        const deleteAt = Date.now() + deleteDelayMs;
-
-        // 持久化删除任务到 Redis（服务重启后可恢复）
-        // 如果持久化失败，仍然使用 setTimeout 作为 fallback
-        try {
-          await schedulePendingDelete(transfer.r2Key, deleteAt);
-        } catch (err) {
-          console.error('Failed to schedule pending delete:', err);
-        }
-
-        // 正常流程：使用 setTimeout 执行删除
-        setTimeout(async () => {
-          try {
-            const success = await deleteObjectWithRetry(transfer.r2Key);
-            if (success) {
-              await removePendingDelete(transfer.r2Key);
-            }
-          } catch (err) {
-            console.error('Delayed delete callback error:', err);
-          }
+        const deleteDelayMs = (Number.parseInt(process.env.R2_PRESIGN_EXPIRES_SECONDS ?? '300', 10) + 60) * 1000;
+        setTimeout(() => {
+          deleteObject(transfer.r2Key).catch(err => {
+            console.error('Delayed R2 delete failed:', err);
+          });
         }, deleteDelayMs);
       }
     }
@@ -372,30 +373,6 @@ app.use((error, req, res, next) => {
   return res.status(500).json({ error: 'Internal server error' });
 });
 
-// 处理遗留的待删除任务（服务重启后恢复）
-let isProcessingDeletes = false;
-const processPendingDeletes = async () => {
-  if (isProcessingDeletes) return; // 防止重叠执行
-  isProcessingDeletes = true;
-  try {
-    const pendingKeys = await getPendingDeletes(Date.now());
-    for (const r2Key of pendingKeys) {
-      const success = await deleteObjectWithRetry(r2Key);
-      if (success) {
-        await removePendingDelete(r2Key);
-        console.log(`Recovered pending delete: ${r2Key}`);
-      }
-    }
-  } catch (error) {
-    console.error('Failed to process pending deletes:', error);
-  } finally {
-    isProcessingDeletes = false;
-  }
-};
-
-app.listen(PORT, async () => {
+app.listen(PORT, () => {
   console.log(`API server listening on ${PORT}`);
-  await processPendingDeletes();
-  // 每 5 分钟检查一次到期任务
-  setInterval(processPendingDeletes, 5 * 60 * 1000);
 });

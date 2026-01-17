@@ -123,32 +123,3 @@ export const consumeTransfer = async (code) => {
 export const deleteTransfer = async (code) => {
   await redis.del(keyFor(code));
 };
-
-// 待删除队列（用于持久化延迟删除任务）
-const PENDING_DELETE_KEY = `${KEY_PREFIX}pendingDelete:queue`;
-
-/**
- * 调度待删除任务
- * @param {string} r2Key - R2 对象的 Key
- * @param {number} deleteAt - 删除时间戳（毫秒）
- */
-export const schedulePendingDelete = async (r2Key, deleteAt) => {
-  await redis.zadd(PENDING_DELETE_KEY, deleteAt, r2Key);
-};
-
-/**
- * 获取到期的待删除任务
- * @param {number} beforeTimestamp - 截止时间戳（毫秒）
- * @returns {Promise<string[]>} 待删除的 R2 Keys
- */
-export const getPendingDeletes = async (beforeTimestamp) => {
-  return redis.zrangebyscore(PENDING_DELETE_KEY, 0, beforeTimestamp);
-};
-
-/**
- * 移除已处理的待删除任务
- * @param {string} r2Key - R2 对象的 Key
- */
-export const removePendingDelete = async (r2Key) => {
-  await redis.zrem(PENDING_DELETE_KEY, r2Key);
-};

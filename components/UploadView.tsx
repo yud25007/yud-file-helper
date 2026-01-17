@@ -198,24 +198,63 @@ export const UploadView: React.FC<UploadViewProps> = ({ onSuccess }) => {
         )}
       </div>
 
-      {/* Settings */}
+      {/* Settings - 混合设计：快捷按钮 + 自定义输入 */}
       <div className="space-y-3">
         <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-2">自毁机制设定</label>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="flex gap-2">
           {[1, 5, 10].map((num) => (
             <button
               key={num}
+              type="button"
               onClick={() => setLimit(num)}
+              aria-pressed={limit === num}
               className={`
-                h-12 rounded-2xl text-sm font-medium transition-all duration-200 border
-                ${limit === num 
-                  ? 'bg-white border-gray-200 text-gray-900 shadow-md ring-1 ring-black/5' 
+                flex-1 h-12 rounded-2xl text-sm font-medium transition-all duration-200 border
+                ${limit === num
+                  ? 'bg-white border-gray-200 text-gray-900 shadow-md ring-1 ring-black/5'
                   : 'bg-transparent border-transparent text-gray-400 hover:bg-white/30'}
               `}
             >
-              {num === 1 ? '1次' : `${num}次`}
+              {num}次
             </button>
           ))}
+          <div className="relative flex-1">
+            <input
+              type="number"
+              min={1}
+              value={![1, 5, 10].includes(limit) ? limit : ''}
+              placeholder="自定义"
+              onChange={(e) => {
+                const raw = e.target.value;
+                if (raw === '') {
+                  setLimit(1);
+                  return;
+                }
+                const val = parseInt(raw, 10);
+                if (!isNaN(val) && val >= 1) {
+                  setLimit(val);
+                }
+              }}
+              aria-label="自定义下载次数"
+              className={`
+                w-full h-12 px-3 pr-8 rounded-2xl text-sm font-medium text-center
+                transition-all duration-200 border
+                [appearance:textfield]
+                [&::-webkit-outer-spin-button]:appearance-none
+                [&::-webkit-inner-spin-button]:appearance-none
+                ${![1, 5, 10].includes(limit)
+                  ? 'bg-white border-gray-200 text-gray-900 shadow-md ring-1 ring-black/5'
+                  : 'bg-transparent border-transparent text-gray-400 hover:bg-white/30 placeholder:text-gray-400'}
+                focus:outline-none focus:bg-white focus:border-gray-200 focus:shadow-md focus:ring-1 focus:ring-black/5
+              `}
+            />
+            <span
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none"
+              aria-hidden="true"
+            >
+              次
+            </span>
+          </div>
         </div>
       </div>
 

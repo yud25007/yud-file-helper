@@ -28,7 +28,7 @@ const parsePositiveInt = (value, fallback) => {
 const PORT = parsePositiveInt(process.env.PORT, 8080);
 const DEFAULT_TTL_SECONDS = parsePositiveInt(process.env.REDIS_TTL_SECONDS, 24 * 60 * 60);
 const MAX_TTL_SECONDS = 7 * 24 * 60 * 60; // 最大 7 天
-const MAX_DOWNLOADS = parsePositiveInt(process.env.MAX_DOWNLOADS, 10);
+// MAX_DOWNLOADS 不再限制上限，用户可自定义任意正整数
 const MAX_UPLOAD_BYTES = parsePositiveInt(process.env.MAX_UPLOAD_BYTES, 50 * 1024 * 1024);
 const RATE_LIMIT_WINDOW_MS = parsePositiveInt(process.env.RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000);
 const RATE_LIMIT_MAX = parsePositiveInt(process.env.RATE_LIMIT_MAX, 100);
@@ -125,8 +125,7 @@ app.post('/api/upload', upload.single('file'), async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid type' });
     }
 
-    const maxDownloadsInput = parsePositiveInt(req.body.maxDownloads, 1);
-    const maxDownloads = Math.min(maxDownloadsInput, MAX_DOWNLOADS);
+    const maxDownloads = parsePositiveInt(req.body.maxDownloads, 1);
     const aiDescription = typeof req.body.aiDescription === 'string' ? req.body.aiDescription : undefined;
     const ttlSeconds = Math.min(parsePositiveInt(req.body.ttlSeconds, DEFAULT_TTL_SECONDS), MAX_TTL_SECONDS);
     const expiresAt = Date.now() + ttlSeconds * 1000;

@@ -1,5 +1,6 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { sanitizeFilename, normalizeContentType, buildContentDisposition } from '../utils/sanitize.js';
 
 const { R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET } = process.env;
 
@@ -45,38 +46,6 @@ export const getPresignedDownloadUrl = async (key, filename, contentType) => {
     throw new Error('R2 storage not configured');
   }
 
-  // 清理文件名：移除路径、控制字符
-  const sanitizeFilename = (value) => {
-    if (typeof value !== 'string') return '';
-    const trimmed = value.trim();
-    if (!trimmed) return '';
-    const baseName = trimmed.split(/[\\/]/).pop();
-    return baseName.replace(/[\u0000-\u001F\u007F]/g, '').trim();
-  };
-
-  // RFC 5987 编码
-  const encodeRFC5987 = (str) =>
-    encodeURIComponent(str).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
-
-  // 构建 Content-Disposition
-  const buildContentDisposition = (fname) => {
-    const safeName = sanitizeFilename(fname);
-    if (!safeName) return 'attachment';
-    const asciiFallback = safeName
-      .replace(/[^\x20-\x7E]/g, '_')
-      .replace(/["\\]/g, '_')
-      .trim() || 'download';
-    return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeRFC5987(safeName)}`;
-  };
-
-  // 规范化 Content-Type
-  const normalizeContentType = (value) => {
-    if (typeof value !== 'string') return 'application/octet-stream';
-    const trimmed = value.trim();
-    if (!trimmed || /[\r\n]/.test(trimmed)) return 'application/octet-stream';
-    return trimmed;
-  };
-
   const command = new GetObjectCommand({
     Bucket: R2_BUCKET,
     Key: key,
@@ -111,4 +80,31 @@ export const objectExists = async (key) => {
     }
     throw error;
   }
+};
+
+/**
+ * 带重试的删除函数（指数退避）
+ * @param {string} key - R2 对象的 Key
+ * @param {number} maxRetries - 最大重试次数（默认 3）
+ * @returns {Promise<boolean>} 是否成功删除
+ */
+export const deleteObjectWithRetry = async (key, maxRetries = 3) => {
+  if (!key) return true; // 空 key 视为"无需删除"
+  if (!client) {
+    console.error('R2 client not configured, cannot delete:', key);
+    return false; // 客户端未配置，无法删除
+  }
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await deleteObject(key);
+      return true;
+    } catch (error) {
+      console.error(`R2 delete attempt ${attempt}/${maxRetries} failed for ${key}:`, error.message);
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
+      }
+    }
+  }
+  return false;
 };

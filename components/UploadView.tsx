@@ -13,13 +13,19 @@ export const UploadView: React.FC<UploadViewProps> = ({ onSuccess }) => {
   const [activeTab, setActiveTab] = useState<TransferType>('FILE');
   const [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState<string>('');
-  
+
   const [limit, setLimit] = useState<number>(1);
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Tab 切换时清除错误状态
+  const handleTabChange = (tab: TransferType) => {
+    setActiveTab(tab);
+    setError('');
+  };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -53,27 +59,29 @@ export const UploadView: React.FC<UploadViewProps> = ({ onSuccess }) => {
     setUploadProgress(0);
 
     try {
-      const content: File | string = activeTab === 'FILE' && file ? file : message;
+      const content = activeTab === 'FILE' && file ? file : message;
       const briefingInput = activeTab === 'FILE' && file ? file.name : message;
 
-      // 并行执行：Gemini 生成简报（后台） + 文件上传（前台）
-      // briefing 失败不影响上传
+      // 同时启动 briefing 和上传（真正并行）
       const briefingPromise = generateMissionBriefing(briefingInput, activeTab)
-        .catch(err => {
-          console.warn('Briefing generation failed:', err);
-          return '安全数据已加密并锁定。';
-        });
+        .catch(() => '安全数据已加密并锁定。');
 
-      // 先等待 briefing（在上传开始前获取），然后上传
-      // 但如果 briefing 太慢，可以使用超时
-      const missionBriefing = await Promise.race([
-        briefingPromise,
-        new Promise<string>(resolve => setTimeout(() => resolve('安全数据已加密并锁定。'), 5000))
-      ]);
-
-      const storedFile = await savePackage(content, activeTab, limit, missionBriefing, (p) => {
+      // 立即开始上传，使用默认 briefing
+      const uploadPromise = savePackage(content, activeTab, limit, '安全数据已加密并锁定。', (p) => {
         setUploadProgress(p);
       });
+
+      // 等待上传完成
+      const storedFile = await uploadPromise;
+
+      // 尝试获取 briefing 结果（最多再等 2 秒）
+      const briefing = await Promise.race([
+        briefingPromise,
+        new Promise<string>(r => setTimeout(() => r('安全数据已加密并锁定。'), 2000))
+      ]);
+
+      // 更新 briefing 描述
+      storedFile.aiDescription = briefing;
       onSuccess(storedFile);
     } catch (uploadError) {
       console.error('Upload failed:', uploadError);
@@ -91,9 +99,11 @@ export const UploadView: React.FC<UploadViewProps> = ({ onSuccess }) => {
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       
       {/* Type Switcher */}
-      <div className="bg-gray-200/50 p-1 rounded-[20px] flex gap-1 relative">
+      <div className="bg-gray-200/50 p-1 rounded-[20px] flex gap-1 relative" role="tablist">
         <button
-          onClick={() => setActiveTab('FILE')}
+          onClick={() => handleTabChange('FILE')}
+          role="tab"
+          aria-selected={activeTab === 'FILE'}
           className={`flex-1 h-10 rounded-[16px] text-sm font-semibold flex items-center justify-center gap-2 transition-all duration-300 ${
             activeTab === 'FILE' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
           }`}
@@ -102,7 +112,9 @@ export const UploadView: React.FC<UploadViewProps> = ({ onSuccess }) => {
           文件传输
         </button>
         <button
-          onClick={() => setActiveTab('TEXT')}
+          onClick={() => handleTabChange('TEXT')}
+          role="tab"
+          aria-selected={activeTab === 'TEXT'}
           className={`flex-1 h-10 rounded-[16px] text-sm font-semibold flex items-center justify-center gap-2 transition-all duration-300 ${
             activeTab === 'TEXT' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
           }`}
@@ -136,11 +148,12 @@ export const UploadView: React.FC<UploadViewProps> = ({ onSuccess }) => {
                   <h3 className="text-lg font-bold text-gray-900">拖拽文件至此</h3>
                   <p className="text-xs text-gray-500 mt-1">支持所有格式</p>
                 </div>
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  className="hidden" 
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  className="hidden"
                   onChange={handleFileSelect}
+                  aria-label="选择要上传的文件"
                 />
               </div>
             </div>

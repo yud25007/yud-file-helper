@@ -49,7 +49,7 @@ const App: React.FC = () => {
             YUD<span className="text-gray-400 font-normal">文件助手</span>
           </h1>
           
-          <div className="w-10" /> // Spacer
+          <div className="w-10" /> 
         </div>
 
         {/* Main Interface Card */}

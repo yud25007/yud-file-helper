@@ -42,14 +42,14 @@ const App: React.FC = () => {
               <ArrowLeft className="w-6 h-6" />
             </button>
           ) : (
-            <div className="w-10" /> // Spacer
+            <div className="w-10" />
           )}
           
           <h1 className="text-xl font-extrabold tracking-tight text-gray-900">
             YUD<span className="text-gray-400 font-normal">文件助手</span>
           </h1>
           
-          <div className="w-10" /> 
+          <div className="w-10" />
         </div>
 
         {/* Main Interface Card */}
@@ -123,10 +123,16 @@ const App: React.FC = () => {
         </GlassCard>
 
         {/* Footer */}
-        <div className="text-center">
+        <div className="text-center space-y-1">
           <p className="text-[10px] text-gray-400 font-medium uppercase tracking-widest opacity-60">
             端到端加密 • 阅后即焚
           </p>
+          <a
+            href="mailto:yud25007@outlook.com"
+            className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            yud25007@outlook.com
+          </a>
         </div>
       </div>
     </div>

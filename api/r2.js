@@ -17,7 +17,7 @@ if (!R2_CONFIGURED) {
 }
 
 const R2_ENDPOINT = R2_ACCOUNT_ID ? `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : '';
-const SIGNED_URL_TTL = Number.parseInt(process.env.R2_PRESIGN_EXPIRES_SECONDS ?? '300', 10);
+const SIGNED_URL_TTL = Number.parseInt(process.env.R2_PRESIGN_EXPIRES_SECONDS ?? '900', 10); // 15 minutes for large files
 
 const client = R2_CONFIGURED ? new S3Client({
   region: 'auto',

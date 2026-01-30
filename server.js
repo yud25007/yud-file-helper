@@ -27,7 +27,7 @@ const parsePositiveInt = (value, fallback) => {
 const PORT = parsePositiveInt(process.env.PORT, 8080);
 const DEFAULT_TTL_SECONDS = parsePositiveInt(process.env.REDIS_TTL_SECONDS, 24 * 60 * 60);
 const MAX_TTL_SECONDS = 7 * 24 * 60 * 60; // 最大 7 天
-const MAX_UPLOAD_BYTES = parsePositiveInt(process.env.MAX_UPLOAD_BYTES, 50 * 1024 * 1024);
+const MAX_UPLOAD_BYTES = parsePositiveInt(process.env.MAX_UPLOAD_BYTES, 1024 * 1024 * 1024); // 1GB
 const RATE_LIMIT_WINDOW_MS = parsePositiveInt(process.env.RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000);
 const RATE_LIMIT_MAX = parsePositiveInt(process.env.RATE_LIMIT_MAX, 100);
 
@@ -172,6 +172,10 @@ app.post('/api/upload', upload.single('file'), async (req, res, next) => {
 
     if (!filename || !size) {
       return res.status(400).json({ error: 'File metadata is required' });
+    }
+
+    if (size > MAX_UPLOAD_BYTES) {
+      return res.status(400).json({ error: `File size exceeds ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB limit` });
     }
 
     const r2Key = `packages/${id}`;

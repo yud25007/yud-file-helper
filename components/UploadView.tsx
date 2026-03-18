@@ -20,6 +20,33 @@ const formatFileSize = (bytes: number): string => {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 };
 
+const getUploadErrorMessage = (error: unknown): string => {
+  if (error instanceof DOMException) {
+    if (error.name === 'SecurityError') {
+      return '浏览器阻止了打包所需的 Worker，请检查站点 CSP 配置后重试。';
+    }
+
+    if (error.name === 'NotFoundError') {
+      return '无法读取或打包所选文件。文件可能已被移动、删除，或站点未放行 blob Worker。请重新选择文件后重试。';
+    }
+  }
+
+  if (error instanceof Error) {
+    const lowerMessage = error.message.toLowerCase();
+    if (
+      lowerMessage.includes('content security policy') ||
+      lowerMessage.includes('worker') ||
+      lowerMessage.includes('blob:')
+    ) {
+      return '浏览器阻止了打包所需的 Worker，请检查站点 CSP 配置后重试。';
+    }
+
+    return error.message;
+  }
+
+  return '上传失败，请稍后重试。';
+};
+
 export const UploadView: React.FC<UploadViewProps> = ({ onSuccess }) => {
   const [activeTab, setActiveTab] = useState<TransferType>('FILE');
   const [files, setFiles] = useState<File[]>([]);
@@ -120,7 +147,14 @@ export const UploadView: React.FC<UploadViewProps> = ({ onSuccess }) => {
         const fileNames = new Set<string>();
 
         for (const file of files) {
-          const buffer = await file.arrayBuffer();
+          let buffer: ArrayBuffer;
+          try {
+            buffer = await file.arrayBuffer();
+          } catch (error) {
+            throw new Error(`无法读取文件“${file.name}”，请确认文件仍存在并重新选择后重试。`, {
+              cause: error
+            });
+          }
           // Handle duplicate file names
           let name = file.name;
           let counter = 1;
@@ -169,7 +203,7 @@ export const UploadView: React.FC<UploadViewProps> = ({ onSuccess }) => {
       }
     } catch (uploadError) {
       console.error('Upload failed:', uploadError);
-      setError(uploadError instanceof Error ? uploadError.message : '上传失败，请稍后重试。');
+      setError(getUploadErrorMessage(uploadError));
     } finally {
       setIsProcessing(false);
       setUploadPhase('idle');

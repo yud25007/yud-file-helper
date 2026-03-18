@@ -50,6 +50,8 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "blob:"],
+      // fflate uses blob-backed Web Workers for larger ZIP operations in the browser.
+      workerSrc: ["'self'", "blob:"],
       connectSrc: ["'self'", "https://*.r2.cloudflarestorage.com", "https://lottie.host"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],

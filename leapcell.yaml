@@ -1,0 +1,37 @@
+# Reference only.
+# Leapcell deployment is configured in the dashboard.
+
+referenceOnly: true
+
+service:
+  name: yud-file-helper
+  runtime: node
+  buildCommand: npm install && npm run build
+  startCommand: node server.js
+
+env:
+  required:
+    - API_KEY
+    - REDIS_URL
+    - R2_ACCOUNT_ID
+    - R2_ACCESS_KEY_ID
+    - R2_SECRET_ACCESS_KEY
+    - R2_BUCKET
+  optional:
+    - PORT
+    - CORS_ORIGIN
+    - REDIS_TTL_SECONDS
+    - REDIS_PREFIX
+    - R2_PRESIGN_EXPIRES_SECONDS
+    - GEMINI_BASE_URL
+    - GEMINI_MODEL
+    - MAX_DOWNLOADS
+    - MAX_UPLOAD_BYTES
+    - RATE_LIMIT_WINDOW_MS
+    - RATE_LIMIT_MAX
+    - VITE_API_BASE_URL
+
+notes:
+  - Prefer a standard external Redis provider because api/redis.js uses redis.eval.
+  - Update CORS_ORIGIN after switching the custom domain.
+  - Review LEAPCELL_DEPLOY.md before using Leapcell Redis or changing branch strategy.

@@ -1,20 +1,58 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# YUD 文件助手
 
-# Run and deploy your AI Studio app
+一个基于“阅后即焚”理念的临时文件/文本分享工具，前端使用 Vite + React，后端使用 Express，文件内容通过 Cloudflare R2 存储，元数据和下载次数通过 Redis 管理。
 
-This contains everything you need to run your app locally.
+## 本地运行
 
-View your app in AI Studio: https://ai.studio/apps/drive/1XyNLYySq7DgzWjy6Yhvx72bF6_QO42Ne
+前置条件：
 
-## Run Locally
+- Node.js 22+
+- 可用的 Redis
+- 可用的 Cloudflare R2 配置
 
-**Prerequisites:**  Node.js
+步骤：
 
+1. 安装依赖
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```bash
+npm install
+```
+
+2. 复制环境变量模板并填写实际值
+
+```bash
+copy .env.example .env
+```
+
+至少要注意这些变量名：
+
+- `API_KEY` 是后端 Gemini 配置
+- `R2_BUCKET` 是 R2 存储桶名
+- `REDIS_URL` 是 Redis 连接串
+- `VITE_API_BASE_URL` 为空时前端默认走同域 `/api`
+
+3. 启动前端开发服务器
+
+```bash
+npm run dev
+```
+
+4. 启动后端服务
+
+```bash
+npm run dev:server
+```
+
+## 生产构建
+
+```bash
+npm run build
+npm start
+```
+
+后端默认监听 `PORT=8080`，并在存在 `dist/` 时同时托管前端静态资源。
+
+## 部署文档
+
+- 通用部署说明见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+- Leapcell 迁移说明见 [LEAPCELL_DEPLOY.md](LEAPCELL_DEPLOY.md)

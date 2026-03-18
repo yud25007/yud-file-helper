@@ -12,10 +12,15 @@ import { GoogleGenAI } from '@google/genai';
 import { getPresignedUploadUrl, getPresignedDownloadUrl, deleteObject, objectExists } from './api/r2.js';
 import { saveTransfer, getTransfer, consumeTransfer, deleteTransfer } from './api/redis.js';
 
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+dotenv.config({ path: join(__dirname, '.env') });
+dotenv.config({ path: join(__dirname, '.env.local'), override: true });
+
+if (!process.env.API_KEY && process.env.GEMINI_API_KEY) {
+  process.env.API_KEY = process.env.GEMINI_API_KEY;
+}
 
 const app = express();
 

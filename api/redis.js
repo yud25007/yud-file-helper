@@ -1,7 +1,13 @@
 import Redis from 'ioredis';
+import { randomUUID } from 'node:crypto';
 
 const redis = process.env.REDIS_URL
-  ? new Redis(process.env.REDIS_URL)
+  ? new Redis(process.env.REDIS_URL, {
+      tls: process.env.REDIS_URL.includes('leapcell.cloud') ? {
+        rejectUnauthorized: false
+      } : undefined,
+      maxRetriesPerRequest: 3,
+    })
   : new Redis({
       host: process.env.REDIS_HOST || '127.0.0.1',
       port: Number.parseInt(process.env.REDIS_PORT || '6379', 10),
@@ -13,7 +19,11 @@ redis.on('error', (error) => {
 });
 
 const KEY_PREFIX = process.env.REDIS_PREFIX || 'transfer:';
+const LOCK_TTL_MS = Number.parseInt(process.env.REDIS_LOCK_TTL_MS || '5000', 10);
+const LOCK_RETRY_DELAY_MS = Number.parseInt(process.env.REDIS_LOCK_RETRY_DELAY_MS || '100', 10);
+const LOCK_MAX_ATTEMPTS = Number.parseInt(process.env.REDIS_LOCK_MAX_ATTEMPTS || '50', 10);
 const keyFor = (code) => `${KEY_PREFIX}${code.toUpperCase()}`;
+const lockKeyFor = (code) => `${keyFor(code)}:lock`;
 
 const serialize = (metadata) => ({
   id: metadata.id ?? '',
@@ -40,6 +50,38 @@ const parseOptionalNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
+const sleep = (ms) => new Promise((resolve) => {
+  setTimeout(resolve, ms);
+});
+
+const acquireLock = async (code) => {
+  const lockKey = lockKeyFor(code);
+  const token = randomUUID();
+
+  for (let attempt = 0; attempt < LOCK_MAX_ATTEMPTS; attempt += 1) {
+    const acquired = await redis.set(lockKey, token, 'PX', LOCK_TTL_MS, 'NX');
+    if (acquired === 'OK') {
+      return { lockKey, token };
+    }
+    await sleep(LOCK_RETRY_DELAY_MS);
+  }
+
+  throw new Error('Failed to acquire transfer lock');
+};
+
+const releaseLock = async ({ lockKey, token }) => {
+  if (!lockKey || !token) return;
+
+  try {
+    const currentToken = await redis.get(lockKey);
+    if (currentToken === token) {
+      await redis.del(lockKey);
+    }
+  } catch (error) {
+    console.error('Failed to release Redis lock:', error);
+  }
+};
+
 const deserialize = (data) => {
   if (!data || Object.keys(data).length === 0) return null;
   return {
@@ -61,12 +103,13 @@ const deserialize = (data) => {
 export const saveTransfer = async (code, metadata, ttlSeconds) => {
   const key = keyFor(code);
   const data = serialize(metadata);
-  const pipeline = redis.multi();
-  pipeline.hset(key, data);
-  if (ttlSeconds) {
-    pipeline.expire(key, ttlSeconds);
+  for (const [field, value] of Object.entries(data)) {
+    if (value === '') continue;
+    await redis.hset(key, field, value);
   }
-  await pipeline.exec();
+  if (ttlSeconds) {
+    await redis.expire(key, ttlSeconds);
+  }
 };
 
 export const getTransfer = async (code) => {
@@ -74,50 +117,46 @@ export const getTransfer = async (code) => {
   return deserialize(data);
 };
 
-// Lua 脚本：原子性检查、消耗并返回完整数据
-// 注意：使用 table.unpack 兼容 Redis 5+/7+
-const CONSUME_LUA = `
-local key = KEYS[1]
-if redis.call('EXISTS', key) == 0 then return nil end
-local max = tonumber(redis.call('HGET', key, 'maxDownloads') or '0')
-local current = tonumber(redis.call('HGET', key, 'currentDownloads') or '0')
-if max > 0 and current >= max then
-  return {0, current, max}
-end
-local newCount = redis.call('HINCRBY', key, 'currentDownloads', 1)
-local burned = 0
-if max > 0 and newCount >= max then burned = 1 end
-local data = redis.call('HGETALL', key)
-local result = {1, newCount, max, burned}
-for i, v in ipairs(data) do
-  result[#result + 1] = v
-end
-return result
-`;
-
 export const consumeTransfer = async (code) => {
   const key = keyFor(code);
-  const result = await redis.eval(CONSUME_LUA, 1, key);
-  if (!result) return null;
+  const lock = await acquireLock(code);
 
-  const [consumed, currentDownloads, maxDownloads, burned, ...pairs] = result;
-  if (!consumed) {
-    return { consumed: false, currentDownloads, maxDownloads, burned: true, transfer: null };
+  try {
+    const exists = await redis.exists(key);
+    if (!exists) {
+      return null;
+    }
+
+    const data = await redis.hgetall(key);
+    const maxDownloads = parseNumber(data.maxDownloads);
+    const currentDownloads = parseNumber(data.currentDownloads);
+
+    if (maxDownloads > 0 && currentDownloads >= maxDownloads) {
+      return {
+        consumed: false,
+        currentDownloads,
+        maxDownloads,
+        burned: true,
+        transfer: null
+      };
+    }
+
+    const newCount = currentDownloads + 1;
+    await redis.hset(key, 'currentDownloads', String(newCount));
+
+    const burned = maxDownloads > 0 && newCount >= maxDownloads;
+    data.currentDownloads = String(newCount);
+
+    return {
+      consumed: true,
+      currentDownloads: newCount,
+      maxDownloads,
+      burned,
+      transfer: deserialize(data),
+    };
+  } finally {
+    await releaseLock(lock);
   }
-
-  const data = {};
-  for (let i = 0; i < pairs.length; i += 2) {
-    data[pairs[i]] = pairs[i + 1];
-  }
-  if (Object.keys(data).length === 0) return null;
-
-  return {
-    consumed: true,
-    currentDownloads,
-    maxDownloads,
-    burned: Boolean(burned),
-    transfer: deserialize(data),
-  };
 };
 
 export const deleteTransfer = async (code) => {

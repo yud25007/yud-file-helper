@@ -2,6 +2,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, Head
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const { R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET } = process.env;
+const STORAGE_UNAVAILABLE_MESSAGE = 'Storage service unavailable';
 
 const R2_CONFIGURED = R2_ACCOUNT_ID && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_BUCKET;
 
@@ -28,22 +29,51 @@ const client = R2_CONFIGURED ? new S3Client({
   },
 }) : null;
 
-export const getPresignedUploadUrl = async (key, contentType) => {
-  if (!client) {
-    throw new Error('R2 storage not configured');
+const createStorageError = (message, options = {}) => {
+  const error = new Error(message);
+  error.name = options.name || 'StorageError';
+  error.statusCode = options.statusCode ?? 503;
+  error.publicMessage = options.publicMessage ?? STORAGE_UNAVAILABLE_MESSAGE;
+  error.details = options.details;
+  if (options.cause) {
+    error.cause = options.cause;
   }
+  return error;
+};
+
+const ensureClient = (operation, key) => {
+  if (client) {
+    return client;
+  }
+
+  throw createStorageError('R2 storage not configured', {
+    details: {
+      operation,
+      key,
+      reason: 'not_configured',
+    },
+  });
+};
+
+const getErrorDetails = (error) => ({
+  status: error?.$metadata?.httpStatusCode,
+  name: error?.name,
+  code: error?.Code ?? error?.code,
+  message: error?.message,
+});
+
+export const getPresignedUploadUrl = async (key, contentType) => {
+  const r2Client = ensureClient('PutObject', key);
   const command = new PutObjectCommand({
     Bucket: R2_BUCKET,
     Key: key,
     ContentType: contentType,
   });
-  return getSignedUrl(client, command, { expiresIn: SIGNED_URL_TTL });
+  return getSignedUrl(r2Client, command, { expiresIn: SIGNED_URL_TTL });
 };
 
 export const getPresignedDownloadUrl = async (key, filename, contentType) => {
-  if (!client) {
-    throw new Error('R2 storage not configured');
-  }
+  const r2Client = ensureClient('GetObject', key);
 
   // 清理文件名：移除路径、控制字符
   const sanitizeFilename = (value) => {
@@ -83,7 +113,7 @@ export const getPresignedDownloadUrl = async (key, filename, contentType) => {
     ResponseContentDisposition: buildContentDisposition(filename),
     ResponseContentType: normalizeContentType(contentType),
   });
-  return getSignedUrl(client, command, { expiresIn: SIGNED_URL_TTL });
+  return getSignedUrl(r2Client, command, { expiresIn: SIGNED_URL_TTL });
 };
 
 export const deleteObject = async (key) => {
@@ -96,19 +126,30 @@ export const deleteObject = async (key) => {
 };
 
 export const objectExists = async (key) => {
-  if (!key || !client) return false;
+  if (!key) return false;
+
+  const r2Client = ensureClient('HeadObject', key);
   const command = new HeadObjectCommand({
     Bucket: R2_BUCKET,
     Key: key,
   });
   try {
-    await client.send(command);
+    await r2Client.send(command);
     return true;
   } catch (error) {
     const status = error?.$metadata?.httpStatusCode;
-    if (status === 404 || error?.name === 'NotFound' || error?.Code === 'NoSuchKey') {
+    const code = error?.Code ?? error?.code;
+    if (status === 404 || error?.name === 'NotFound' || code === 'NoSuchKey' || code === 'NotFound') {
       return false;
     }
-    throw error;
+
+    throw createStorageError('R2 object check failed', {
+      details: {
+        operation: 'HeadObject',
+        key,
+        ...getErrorDetails(error),
+      },
+      cause: error,
+    });
   }
 };

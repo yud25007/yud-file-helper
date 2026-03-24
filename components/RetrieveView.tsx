@@ -4,6 +4,29 @@ import { Button } from './GlassCard';
 import { getFile, incrementDownload } from '../services/storage';
 import { TransferFile } from '../types';
 
+const getRetrieveErrorMessage = (error: unknown, fallback: string) => {
+  if (!(error instanceof Error)) {
+    return fallback;
+  }
+
+  switch (error.message) {
+    case 'Invalid code':
+      return '提取码格式无效。';
+    case 'Not found':
+      return '无效的提取码或文件已销毁。';
+    case 'File not found in storage':
+      return '文件在存储中不存在，提取记录已自动清理。';
+    case 'Missing file payload':
+      return '文件记录不完整，暂时无法提取。';
+    case 'Missing message payload':
+      return '留言记录不完整，暂时无法查看。';
+    case 'Storage service unavailable':
+      return '存储服务暂时不可用，请检查 R2 配置或稍后重试。';
+    default:
+      return fallback;
+  }
+};
+
 export const RetrieveView: React.FC = () => {
   const [code, setCode] = useState('');
   const [foundFile, setFoundFile] = useState<TransferFile | null>(null);
@@ -39,7 +62,7 @@ export const RetrieveView: React.FC = () => {
     } catch (lookupError) {
       console.error('Lookup failed:', lookupError);
       setFoundFile(null);
-      setError('解析失败，请稍后再试。');
+      setError(getRetrieveErrorMessage(lookupError, '解析失败，请稍后再试。'));
     } finally {
       setIsSearching(false);
     }
@@ -75,7 +98,7 @@ export const RetrieveView: React.FC = () => {
       document.body.removeChild(link);
     } catch (err) {
       console.error('Download failed:', err);
-      setError('提取失败，请稍后再试。');
+      setError(getRetrieveErrorMessage(err, '提取失败，请稍后再试。'));
     } finally {
       setIsDownloading(false);
     }
@@ -102,7 +125,7 @@ export const RetrieveView: React.FC = () => {
       setIsRevealed(true);
     } catch (err) {
       console.error('Reveal failed:', err);
-      setError('解密失败，请稍后再试。');
+      setError(getRetrieveErrorMessage(err, '解密失败，请稍后再试。'));
     } finally {
       setIsRevealing(false);
     }

@@ -97,6 +97,18 @@ const generateCode = () => {
 
 const normalizeCode = (value) => String(value ?? '').trim().toUpperCase();
 const isCodeValid = (code) => CODE_REGEX.test(code);
+const attachErrorContext = (error, context = {}) => {
+  if (!error || typeof error !== 'object') {
+    return error;
+  }
+
+  const currentDetails = error.details && typeof error.details === 'object' ? error.details : {};
+  error.details = {
+    ...currentDetails,
+    ...context,
+  };
+  return error;
+};
 
 // 清理文件名：移除路径、控制字符
 const sanitizeFilename = (value) => {
@@ -263,7 +275,17 @@ app.post('/api/consume/:code', async (req, res, next) => {
         return res.status(500).json({ error: 'Missing file payload' });
       }
       // 检查 R2 对象是否存在，避免消耗计数后才发现文件不存在
-      const exists = await objectExists(precheck.r2Key);
+      let exists;
+      try {
+        exists = await objectExists(precheck.r2Key);
+      } catch (error) {
+        return next(attachErrorContext(error, {
+          route: '/api/consume/:code',
+          phase: 'head_object',
+          code,
+          r2Key: precheck.r2Key,
+        }));
+      }
       if (!exists) {
         // 文件不存在，清理孤儿记录
         await deleteTransfer(code);
@@ -289,11 +311,20 @@ app.post('/api/consume/:code', async (req, res, next) => {
       if (!transfer.r2Key) {
         return res.status(500).json({ error: 'Missing file payload' });
       }
-      downloadUrl = await getPresignedDownloadUrl(
-        transfer.r2Key,
-        transfer.filename,
-        transfer.contentType
-      );
+      try {
+        downloadUrl = await getPresignedDownloadUrl(
+          transfer.r2Key,
+          transfer.filename,
+          transfer.contentType
+        );
+      } catch (error) {
+        return next(attachErrorContext(error, {
+          route: '/api/consume/:code',
+          phase: 'sign_download',
+          code,
+          r2Key: transfer.r2Key,
+        }));
+      }
     } else if (transfer.type === 'TEXT') {
       if (!transfer.message) {
         return res.status(500).json({ error: 'Missing message payload' });
@@ -377,11 +408,24 @@ app.use((req, res) => {
 });
 
 app.use((error, req, res, next) => {
-  console.error(error);
-  if (error instanceof multer.MulterError) {
-    return res.status(400).json({ error: error.message });
-  }
-  return res.status(500).json({ error: 'Internal server error' });
+  const statusCode = error instanceof multer.MulterError
+    ? 400
+    : (Number.isInteger(error?.statusCode) ? error.statusCode : 500);
+
+  const publicMessage = error instanceof multer.MulterError
+    ? error.message
+    : (typeof error?.publicMessage === 'string' ? error.publicMessage : 'Internal server error');
+
+  console.error('Request failed:', {
+    method: req.method,
+    path: req.originalUrl,
+    statusCode,
+    message: error?.message,
+    details: error?.details,
+    stack: error?.stack,
+  });
+
+  return res.status(statusCode).json({ error: publicMessage });
 });
 
 app.listen(PORT, () => {
